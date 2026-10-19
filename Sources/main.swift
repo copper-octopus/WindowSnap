@@ -60,7 +60,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Top Quarter   \u{2303}\u{2325}\u{2191}", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "Bottom Quarter \u{2303}\u{2325}\u{2193}", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "Full Screen / Restore  \u{2303}\u{2325}\u{23CE}", action: nil, keyEquivalent: "")
-        menu.addItem(withTitle: "Center         \u{2303}\u{2325}C", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "Center         \u{2303}\u{2325}\u{21E7}C", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
@@ -137,7 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         register(keyCode: UInt32(kVK_Return), modifiers: mods, id: 3, signature: signature)
         register(keyCode: UInt32(kVK_UpArrow), modifiers: mods, id: 4, signature: signature)
         register(keyCode: UInt32(kVK_DownArrow), modifiers: mods, id: 5, signature: signature)
-        register(keyCode: UInt32(kVK_ANSI_C), modifiers: mods, id: 6, signature: signature)
+        register(keyCode: UInt32(kVK_ANSI_C), modifiers: mods | UInt32(shiftKey), id: 6, signature: signature)
     }
 
     private func register(keyCode: UInt32, modifiers: UInt32, id: UInt32, signature: OSType) {
@@ -173,25 +173,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var targetScreen = screen
         let target: Snap
         switch id {
-        case 1: // Left: a left quarter grows back to the left half; a right quarter moves across;
-                // the left half moves on to the right half of the next monitor over
+        case 1: // Left: a right quarter moves across; the left half and left quarters move on
+                // to the matching right side of the next monitor over, or at the edge, a left
+                // quarter grows back to the left half
+            let west = adjacentScreen(to: screen, west: true)
             switch snap {
             case .topRight: target = .topLeft
             case .bottomRight: target = .bottomLeft
             case .leftHalf:
-                guard let west = adjacentScreen(to: screen, west: true) else { return }
+                guard let west = west else { return }
                 targetScreen = west
                 target = .rightHalf
+            case .topLeft, .bottomLeft:
+                if let west = west {
+                    targetScreen = west
+                    target = snap == .topLeft ? .topRight : .bottomRight
+                } else {
+                    target = .leftHalf
+                }
             default: target = .leftHalf
             }
         case 2: // Right
+            let east = adjacentScreen(to: screen, west: false)
             switch snap {
             case .topLeft: target = .topRight
             case .bottomLeft: target = .bottomRight
             case .rightHalf:
-                guard let east = adjacentScreen(to: screen, west: false) else { return }
+                guard let east = east else { return }
                 targetScreen = east
                 target = .leftHalf
+            case .topRight, .bottomRight:
+                if let east = east {
+                    targetScreen = east
+                    target = snap == .topRight ? .topLeft : .bottomLeft
+                } else {
+                    target = .rightHalf
+                }
             default: target = .rightHalf
             }
         case 4: // Up: a top quarter grows back to its half

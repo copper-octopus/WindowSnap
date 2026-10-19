@@ -12,12 +12,12 @@ macOS menu-bar utility for snapping windows with global hotkeys. Built with Swif
 
 ## Hotkeys
 
-- `Ctrl+Option+Left` — Snap to left half (from a right quarter, moves to the matching left quarter; from the left half, moves to the right half of the monitor to the left)
+- `Ctrl+Option+Left` — Snap to left half. From a right quarter, moves to the matching left quarter. From the left half or a left quarter, moves to the matching right side of the monitor to the left; with no monitor there, a left quarter grows back to the left half
 - `Ctrl+Option+Right` — Snap to right half (mirror of Left)
 - `Ctrl+Option+Up` — Shrink a half to its top quarter; pressed again (or Left/Right toward its side), grows back to the half
 - `Ctrl+Option+Down` — Same for the bottom quarter
 - `Ctrl+Option+Return` — Full screen; pressed again, restores the frame from before
-- `Ctrl+Option+C` — Center on its screen, keeping the size
+- `Ctrl+Option+Shift+C` — Center on its screen, keeping the size
 
 Snap state is kept per window in memory and only trusted while the window's frame still matches what WindowSnap set, so a manual move or resize resets it.
 
