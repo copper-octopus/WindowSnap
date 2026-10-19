@@ -4,6 +4,8 @@ import Carbon
 enum Snap {
     case leftHalf, rightHalf, full
     case topLeft, bottomLeft, topRight, bottomRight
+    // Middle column: full height, or a quarter-size window at its top, middle, or bottom
+    case centerColumn, centerTop, centerMiddle, centerBottom
 }
 
 // AXUIElement is a CFType, so window identity is CFEqual/CFHash, not pointer identity.
@@ -60,7 +62,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Top Quarter   \u{2303}\u{2325}\u{2191}", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "Bottom Quarter \u{2303}\u{2325}\u{2193}", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "Full Screen / Restore  \u{2303}\u{2325}\u{23CE}", action: nil, keyEquivalent: "")
-        menu.addItem(withTitle: "Center         \u{2303}\u{2325}\u{21E7}C", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "Center         \u{2303}\u{2325}M", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
@@ -137,7 +139,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         register(keyCode: UInt32(kVK_Return), modifiers: mods, id: 3, signature: signature)
         register(keyCode: UInt32(kVK_UpArrow), modifiers: mods, id: 4, signature: signature)
         register(keyCode: UInt32(kVK_DownArrow), modifiers: mods, id: 5, signature: signature)
-        register(keyCode: UInt32(kVK_ANSI_C), modifiers: mods | UInt32(shiftKey), id: 6, signature: signature)
+        register(keyCode: UInt32(kVK_ANSI_M), modifiers: mods, id: 6, signature: signature)
     }
 
     private func register(keyCode: UInt32, modifiers: UInt32, id: UInt32, signature: OSType) {
@@ -178,8 +180,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // quarter grows back to the left half
             let west = adjacentScreen(to: screen, west: true)
             switch snap {
-            case .topRight: target = .topLeft
-            case .bottomRight: target = .bottomLeft
+            case .topRight, .centerTop: target = .topLeft
+            case .bottomRight, .centerBottom: target = .bottomLeft
             case .leftHalf:
                 guard let west = west else { return }
                 targetScreen = west
@@ -196,8 +198,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case 2: // Right
             let east = adjacentScreen(to: screen, west: false)
             switch snap {
-            case .topLeft: target = .topRight
-            case .bottomLeft: target = .bottomRight
+            case .topLeft, .centerTop: target = .topRight
+            case .bottomLeft, .centerBottom: target = .bottomRight
             case .rightHalf:
                 guard let east = east else { return }
                 targetScreen = east
@@ -217,6 +219,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .topRight: target = .rightHalf
             case .leftHalf, .bottomLeft: target = .topLeft
             case .rightHalf, .bottomRight: target = .topRight
+            // The middle column steps through its quarter-size slots, then grows back
+            case .centerColumn, .centerMiddle: target = .centerTop
+            case .centerBottom: target = .centerMiddle
+            case .centerTop: target = .centerColumn
             default: target = onLeft ? .topLeft : .topRight
             }
         case 5: // Down
@@ -225,6 +231,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .bottomRight: target = .rightHalf
             case .leftHalf, .topLeft: target = .bottomLeft
             case .rightHalf, .topRight: target = .bottomRight
+            case .centerColumn, .centerMiddle: target = .centerBottom
+            case .centerTop: target = .centerMiddle
+            case .centerBottom: target = .centerColumn
             default: target = onLeft ? .bottomLeft : .bottomRight
             }
         case 3: // Return: full screen, or a second press restores the frame from before it
@@ -234,13 +243,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             target = .full
-        case 6: // C: keep the size, move to the middle of this screen
-            let area = toAX(visible)
-            let size = CGSize(width: min(current.width, area.width), height: min(current.height, area.height))
-            setFrame(of: window, to: CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
-                                            width: size.width, height: size.height))
-            windowStates[key] = nil
-            return
+        case 6: // M: a half becomes the full-height middle column, a quarter a quarter-size
+                // window in the middle; anything else keeps its size and is centered
+            switch snap {
+            case .leftHalf, .rightHalf, .centerColumn: target = .centerColumn
+            case .topLeft, .bottomLeft, .topRight, .bottomRight, .centerTop, .centerMiddle, .centerBottom:
+                target = .centerMiddle
+            default:
+                centerKeepingSize(window, current: current, in: visible)
+                windowStates[key] = nil
+                return
+            }
         default:
             return
         }
@@ -249,6 +262,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var next = WindowState(snap: target, frame: frame(of: window) ?? current)
         if target == .full { next.beforeFull = (snap, current) }
         windowStates[key] = next
+    }
+
+    private func centerKeepingSize(_ window: AXUIElement, current: CGRect, in visible: CGRect) {
+        let area = toAX(visible)
+        let size = CGSize(width: min(current.width, area.width), height: min(current.height, area.height))
+        setFrame(of: window, to: CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
+                                        width: size.width, height: size.height))
     }
 
     private func rect(for snap: Snap, in v: CGRect) -> CGRect {
@@ -262,6 +282,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .bottomLeft:  return CGRect(x: v.minX, y: v.minY, width: w, height: h)
         case .topRight:    return CGRect(x: v.minX + w, y: v.minY + h, width: w, height: h)
         case .bottomRight: return CGRect(x: v.minX + w, y: v.minY, width: w, height: h)
+        case .centerColumn: return CGRect(x: v.minX + w / 2, y: v.minY, width: w, height: v.height)
+        case .centerTop:    return CGRect(x: v.minX + w / 2, y: v.minY + h, width: w, height: h)
+        case .centerMiddle: return CGRect(x: v.minX + w / 2, y: v.minY + h / 2, width: w, height: h)
+        case .centerBottom: return CGRect(x: v.minX + w / 2, y: v.minY, width: w, height: h)
         }
     }
 

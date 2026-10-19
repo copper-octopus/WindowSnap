@@ -17,7 +17,9 @@ macOS menu-bar utility for snapping windows with global hotkeys. Built with Swif
 - `Ctrl+Option+Up` — Shrink a half to its top quarter; pressed again (or Left/Right toward its side), grows back to the half
 - `Ctrl+Option+Down` — Same for the bottom quarter
 - `Ctrl+Option+Return` — Full screen; pressed again, restores the frame from before
-- `Ctrl+Option+Shift+C` — Center on its screen, keeping the size
+- `Ctrl+Option+M` — Center. A half becomes a full-height middle column; a quarter becomes a quarter-size window in the middle; anything else is centered at its current size
+  - From the middle column, Up/Down step through quarter-size top, middle, and bottom slots in the middle column, and pressing past the end grows it back to the column
+  - Left/Right from the middle: the column or middle slot goes to that half, the top or bottom slot to that quarter
 
 Snap state is kept per window in memory and only trusted while the window's frame still matches what WindowSnap set, so a manual move or resize resets it.
 
