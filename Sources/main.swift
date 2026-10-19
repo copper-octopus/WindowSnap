@@ -23,12 +23,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var hotKeyRefs: [EventHotKeyRef?] = []
     var windowStates: [WindowKey: WindowState] = [:]
+    var permissionItem: NSMenuItem!
+    var permissionSeparator: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         checkAccessibility()
         installHotKeyHandler()
         registerHotKeys()
+
+        // Permission can be revoked or granted while running, so keep the menu honest.
+        Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            self?.refreshPermissionStatus()
+        }
     }
 
     // MARK: - Menu Bar
@@ -40,6 +47,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
+        permissionItem = NSMenuItem(title: "Accessibility access needed: open Settings",
+                                    action: #selector(openAccessibilitySettings), keyEquivalent: "")
+        permissionItem.target = self
+        permissionSeparator = .separator()
+        menu.addItem(permissionItem)
+        menu.addItem(permissionSeparator)
         menu.addItem(withTitle: "WindowSnap", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Left Half      \u{2303}\u{2325}\u{2190}", action: nil, keyEquivalent: "")
@@ -47,6 +60,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Top Quarter   \u{2303}\u{2325}\u{2191}", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "Bottom Quarter \u{2303}\u{2325}\u{2193}", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "Full Screen / Restore  \u{2303}\u{2325}\u{23CE}", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "Center         \u{2303}\u{2325}C", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
@@ -58,6 +72,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         if !AXIsProcessTrustedWithOptions(options) {
             NSLog("WindowSnap: Accessibility permission required. Please grant access in System Settings.")
+        }
+        refreshPermissionStatus()
+    }
+
+    // Without access every hotkey silently does nothing, so dim the icon and say why.
+    private func refreshPermissionStatus() {
+        let trusted = AXIsProcessTrusted()
+        statusItem.button?.alphaValue = trusted ? 1.0 : 0.35
+        permissionItem.isHidden = trusted
+        permissionSeparator.isHidden = trusted
+    }
+
+    @objc private func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -108,6 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         register(keyCode: UInt32(kVK_Return), modifiers: mods, id: 3, signature: signature)
         register(keyCode: UInt32(kVK_UpArrow), modifiers: mods, id: 4, signature: signature)
         register(keyCode: UInt32(kVK_DownArrow), modifiers: mods, id: 5, signature: signature)
+        register(keyCode: UInt32(kVK_ANSI_C), modifiers: mods, id: 6, signature: signature)
     }
 
     private func register(keyCode: UInt32, modifiers: UInt32, id: UInt32, signature: OSType) {
@@ -124,6 +154,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Window Snapping
 
     private func handleHotKey(id: UInt32) {
+        guard AXIsProcessTrusted() else {
+            refreshPermissionStatus()
+            openAccessibilitySettings()
+            return
+        }
         guard let window = focusedWindow(), let current = frame(of: window),
               let screen = screen(containing: current) else { return }
         let visible = screen.visibleFrame
@@ -135,18 +170,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let snap = state?.snap
         let onLeft = current.midX < toAX(visible).midX
 
+        var targetScreen = screen
         let target: Snap
         switch id {
-        case 1: // Left: a left quarter grows back to the left half; a right quarter moves across
+        case 1: // Left: a left quarter grows back to the left half; a right quarter moves across;
+                // the left half moves on to the right half of the next monitor over
             switch snap {
             case .topRight: target = .topLeft
             case .bottomRight: target = .bottomLeft
+            case .leftHalf:
+                guard let west = adjacentScreen(to: screen, west: true) else { return }
+                targetScreen = west
+                target = .rightHalf
             default: target = .leftHalf
             }
         case 2: // Right
             switch snap {
             case .topLeft: target = .topRight
             case .bottomLeft: target = .bottomRight
+            case .rightHalf:
+                guard let east = adjacentScreen(to: screen, west: false) else { return }
+                targetScreen = east
+                target = .leftHalf
             default: target = .rightHalf
             }
         case 4: // Up: a top quarter grows back to its half
@@ -172,11 +217,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             target = .full
+        case 6: // C: keep the size, move to the middle of this screen
+            let area = toAX(visible)
+            let size = CGSize(width: min(current.width, area.width), height: min(current.height, area.height))
+            setFrame(of: window, to: CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
+                                            width: size.width, height: size.height))
+            windowStates[key] = nil
+            return
         default:
             return
         }
 
-        setFrame(of: window, to: toAX(rect(for: target, in: visible)))
+        setFrame(of: window, to: toAX(rect(for: target, in: targetScreen.visibleFrame)))
         var next = WindowState(snap: target, frame: frame(of: window) ?? current)
         if target == .full { next.beforeFull = (snap, current) }
         windowStates[key] = next
@@ -208,6 +260,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func screen(containing axFrame: CGRect) -> NSScreen? {
         let center = CGPoint(x: axFrame.midX, y: axFrame.midY)
         return NSScreen.screens.first { toAX($0.frame).contains(center) } ?? NSScreen.main
+    }
+
+    // The nearest monitor wholly to the left (west) or right of this one, if any.
+    private func adjacentScreen(to screen: NSScreen, west: Bool) -> NSScreen? {
+        let others = NSScreen.screens.filter { $0 != screen }
+        if west {
+            return others.filter { $0.frame.maxX <= screen.frame.minX + 1 }.max { $0.frame.maxX < $1.frame.maxX }
+        }
+        return others.filter { $0.frame.minX >= screen.frame.maxX - 1 }.min { $0.frame.minX < $1.frame.minX }
     }
 
     private func focusedWindow() -> AXUIElement? {
