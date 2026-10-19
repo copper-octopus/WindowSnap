@@ -8,6 +8,7 @@ macOS menu-bar utility for snapping windows with global hotkeys. Built with Swif
 - `Info.plist` — App bundle config (`LSUIElement: true` for menu-bar-only)
 - `build.sh` — Compiles with `swiftc` and assembles `.app` bundle into `~/Applications/`
 - `uninstall.sh` — Stops running app and removes the `.app` bundle
+- `README.md` — Public-facing hotkey and install docs; keep in sync with the Hotkeys section below
 - `make-signing-cert.sh` — One-time: creates the self-signed "WindowSnap Local Signing" identity that `build.sh` signs with
 
 ## Hotkeys
